@@ -38,9 +38,8 @@
 - ============================================================================
 */
 
-#include “ms51_16k_keil.h”
+#include "ms51_16k_keil.h"
 #include <stdint.h>
-#include <string.h>
 
 // ============================================================================
 // HARDWARE REGISTER DEFINITIONS
@@ -105,6 +104,7 @@ __sfr __at (0x99) P0S;
 #define LED_CLEAR_BLINK_MS 300
 #define LED_CAPTURE_BLINK_MS 200
 #define LED_ERROR_BLINK_MS 100
+#define LED_ADC_FAULT_BLINK_MS 200
 
 // Startup
 #define STARTUP_STABILIZE_MS 100
@@ -200,8 +200,8 @@ uint16_t current_vdd_mv = 5000; // Measured VDD in millivolts
 uint8_t A_valid = 0; // 0 = SPROM empty, 1 = valid data
 
 // ADC health monitoring
-uint8_t adc_fail_count = 0;
-uint8_t adc_fault_flag = 0;
+volatile uint8_t adc_fail_count = 0;
+volatile uint8_t adc_fault_flag = 0;
 
 // EMA filter state (Q8 fixed-point for precision)
 static uint32_t ema_state = 0;
@@ -300,7 +300,7 @@ WDT_Clear();
 void Delay_Us(uint16_t us)
 {
 // Each iteration ~1µs at 24MHz with loop overhead
-while(us–) {
+while(us--) {
 __asm
 nop
 nop
@@ -327,7 +327,6 @@ uint16_t Calculate_CRC16(uint8_t *data, uint8_t length)
 uint16_t crc = 0xFFFF;
 uint8_t i, j;
 
-```
 for(i = 0; i < length; i++) {
 crc ^= ((uint16_t)data[i] << 8);
 for(j = 0; j < 8; j++) {
@@ -345,7 +344,6 @@ WDT_Clear();
 }
 
 return crc;
-```
 
 }
 
@@ -368,7 +366,6 @@ uint8_t SPROM_Read_Byte(uint8_t offset)
 uint8_t dat;
 uint8_t ea_save = EA;
 
-```
 EA = 0;
 
 IAP_Unlock();
@@ -390,7 +387,6 @@ CHPCON &= ~0x01;
 
 EA = ea_save;
 return dat;
-```
 
 }
 
@@ -401,7 +397,6 @@ uint8_t retry;
 uint8_t readback;
 uint8_t ea_save = EA;
 
-```
 for(retry = 0; retry < SPROM_WRITE_RETRIES; retry++) {
 EA = 0;
 
@@ -436,7 +431,6 @@ WDT_Clear();
 }
 
 return 0; // Failed after retries
-```
 
 }
 
@@ -446,7 +440,6 @@ uint8_t SPROM_Erase(void)
 uint8_t ea_save = EA;
 uint8_t verify_byte;
 
-```
 EA = 0;
 
 IAP_Unlock();
@@ -472,7 +465,6 @@ Delay_Ms(10);
 // Verify first byte is erased
 verify_byte = SPROM_Read_Byte(0);
 return (verify_byte == SPROM_ERASED_BYTE) ? 1 : 0;
-```
 
 }
 
@@ -483,7 +475,6 @@ uint8_t buffer[10]; // Data buffer for CRC calculation
 uint16_t crc;
 uint8_t success = 1;
 
-```
 // Prepare data buffer
 buffer[0] = SPROM_MAGIC_VALUE & 0xFF;
 buffer[1] = SPROM_MAGIC_VALUE >> 8;
@@ -522,7 +513,6 @@ if(!SPROM_Write_Byte(SPROM_ADDR_CRC_LOW, crc & 0xFF)) success = 0;
 if(!SPROM_Write_Byte(SPROM_ADDR_CRC_HIGH, crc >> 8)) success = 0;
 
 return success;
-```
 
 }
 
@@ -534,7 +524,6 @@ uint16_t stored_magic;
 uint16_t stored_crc;
 uint16_t calc_crc;
 
-```
 // Read magic number first
 buffer[0] = SPROM_Read_Byte(SPROM_ADDR_MAGIC);
 buffer[1] = SPROM_Read_Byte(SPROM_ADDR_MAGIC + 1);
@@ -583,7 +572,6 @@ return 0;
 
 A_valid = 1;
 return 1;
-```
 
 }
 
@@ -597,7 +585,6 @@ void GPIO_Init(void)
 P0M1 &= ~((1<<4) | (1<<1)); // Clear open-drain
 P0M2 |= ((1<<4) | (1<<1)); // Set push-pull
 
-```
 // P1.5 (MAIN LED)
 P1M1 &= ~(1<<5);
 P1M2 |= (1<<5);
@@ -615,7 +602,6 @@ P0S &= ~(1<<3); // Disable Schmitt trigger
 LED_MAIN_OFF();
 LED_FAULT_OFF();
 LED_SETTING_OFF();
-```
 
 }
 
@@ -630,7 +616,6 @@ ADCCON1 = 0x00;
 ADCCON2 = 0x00;
 ADCCON0 = 0x00;
 
-```
 // Configure ADC clock divider
 // ADCDIV = 01 (÷2) for 12MHz ADC clock @ 24MHz system
 // This provides good balance of speed and accuracy
@@ -657,7 +642,6 @@ ADCCON1 |= 0x01;
 
 // Wait for ADC to stabilize
 Delay_Ms(ADC_INIT_DELAY_MS);
-```
 
 }
 
@@ -669,14 +653,12 @@ void Timer_Init(void)
 TMOD &= 0xF0; // Clear Timer0 bits
 TMOD |= 0x01; // Timer0 Mode 1 (16-bit)
 
-```
 // Reload for 1ms @ 24MHz
 TH0 = 0xFA;
 TL0 = 0x24;
 
 ET0 = 1; // Enable Timer0 interrupt
 TR0 = 1; // Start Timer0
-```
 
 }
 
@@ -691,7 +673,6 @@ uint16_t result;
 uint16_t timeout;
 uint8_t ea_save;
 
-```
 // Select channel and allow settling
 ADCCON0 = (ADCCON0 & 0xF0) | channel;
 Delay_Us(ADC_SETTLE_DELAY_US);
@@ -723,7 +704,6 @@ result = ((uint16_t)ADCRH << 4) | (ADCRL & 0x0F);
 EA = ea_save;
 
 return result;
-```
 
 }
 
@@ -736,7 +716,6 @@ uint8_t i;
 uint8_t valid_count = 0;
 uint16_t reading;
 
-```
 for(i = 0; i < ADC_OVERSAMPLE_COUNT; i++) {
 reading = ADC_ReadRaw(channel);
 
@@ -769,7 +748,6 @@ adc_fault_flag = 0;
 // Decimation: sum / 4 (right-shift by 2 for +2 bits resolution)
 // Result is now effectively 14-bit
 return (uint16_t)(sum >> ADC_OVERSAMPLE_SHIFT);
-```
 
 }
 
@@ -788,14 +766,12 @@ ema_initialized = 1;
 return new_sample;
 }
 
-```
 // EMA formula: state = state + alpha * (sample - state)
 // In fixed-point: state += (sample << 8 - state) >> EMA_SHIFT
 int32_t delta = ((uint32_t)new_sample << 8) - ema_state;
 ema_state += delta >> EMA_SHIFT;
 
 return (uint16_t)(ema_state >> 8);
-```
 
 }
 
@@ -805,7 +781,6 @@ uint16_t Filter_Median(uint16_t new_sample)
 {
 uint16_t a, b, c;
 
-```
 // Add new sample to circular buffer
 median_buffer[median_index] = new_sample;
 median_index = (median_index + 1) % MEDIAN_WINDOW;
@@ -825,7 +800,6 @@ if(a > c) return a;
 else if(b > c) return c;
 else return b;
 }
-```
 
 }
 
@@ -834,7 +808,6 @@ void Filter_Reset(void)
 {
 uint8_t i;
 
-```
 ema_state = 0;
 ema_initialized = 0;
 
@@ -842,7 +815,6 @@ for(i = 0; i < MEDIAN_WINDOW; i++) {
 median_buffer[i] = ADC_DEFAULT_VALUE;
 }
 median_index = 0;
-```
 
 }
 
@@ -853,10 +825,8 @@ uint16_t raw = ADC_ReadOversampled(channel);
 uint16_t median_out = Filter_Median(raw);
 uint16_t ema_out = Filter_EMA(median_out);
 
-```
 global_B_raw = raw;
 return ema_out;
-```
 
 }
 
@@ -866,7 +836,6 @@ uint16_t ADC_ReadPeak(uint8_t channel)
 uint16_t max_reading = 0;
 uint8_t i;
 
-```
 for(i = 0; i < PEAK_SAMPLE_COUNT; i++) {
 uint16_t reading = ADC_ReadFiltered(channel);
 
@@ -880,7 +849,6 @@ Delay_Ms(PEAK_SAMPLE_INTERVAL_MS);
 }
 
 return max_reading;
-```
 
 }
 
@@ -893,7 +861,6 @@ uint16_t ADC_MeasureVDD(void)
 uint16_t bandgap_reading;
 uint32_t vdd_calc;
 
-```
 // Read internal bandgap reference
 // Note: Channel 8 is typically the bandgap on MS51
 // Check your specific variant's datasheet
@@ -913,7 +880,6 @@ if(vdd_calc < 2400) vdd_calc = 2400;
 if(vdd_calc > 5500) vdd_calc = 5500;
 
 return (uint16_t)vdd_calc;
-```
 
 }
 
@@ -939,7 +905,6 @@ uint8_t led_value = 0;
 uint16_t interval;
 uint8_t current_digit;
 
-```
 if(state->in_long_pause) {
 if((current_tick - state->long_pause_timer) >= LED_LONG_PAUSE_MS) {
 state->in_long_pause = 0;
@@ -1005,7 +970,6 @@ state->long_pause_timer = current_tick;
 }
 
 LED_Set(state->led_id, led_value);
-```
 
 }
 
@@ -1014,10 +978,8 @@ void Update_LED_Digits(LED_State_t *state, uint16_t value)
 state->hundreds = (uint8_t)(value / 100);
 state->tens = (uint8_t)((value % 100) / 10);
 
-```
 if(state->hundreds > LED_MAX_HUNDREDS) state->hundreds = LED_MAX_HUNDREDS;
 if(state->tens > LED_MAX_TENS) state->tens = LED_MAX_TENS;
-```
 
 }
 
@@ -1070,7 +1032,6 @@ uint8_t button_last = 0;
 uint32_t button_debounce_timer = 0;
 uint8_t button_enable_capture = 0;
 
-```
 // Timing
 uint32_t last_sample_time = 0;
 uint32_t current_tick = 0;
@@ -1355,7 +1316,7 @@ LED_FAULT_OFF();
 // MAIN LED - Shows B (or fault indication)
 if(adc_fault_flag) {
 // ADC fault - rapid blink
-if((current_tick / 200) & 1) {
+if((current_tick / LED_ADC_FAULT_BLINK_MS) & 1) {
 LED_MAIN_ON();
 } else {
 LED_MAIN_OFF();
@@ -1366,6 +1327,5 @@ Update_LED_StateMachine(&main_led, current_tick);
 
 // No delay needed - timing is tick-driven
 }
-```
 
 }
